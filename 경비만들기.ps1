@@ -11,6 +11,7 @@ $settings = Load-Settings
 $script:statementPath = ""
 $script:templatePath = ""
 $script:receiptFolder = ""
+$script:receiptFiles = @()
 $script:transactions = @()
 
 function Pick-File([string]$title, [string]$filter) {
@@ -26,6 +27,39 @@ function Pick-Folder([string]$title) {
   $dlg.Description = $title
   if ($dlg.ShowDialog() -eq "OK") { return $dlg.SelectedPath }
   return $null
+}
+
+function Pick-ImageFiles([string]$title) {
+  $dlg = New-Object System.Windows.Forms.OpenFileDialog
+  $dlg.Title = $title
+  $dlg.Filter = "이미지 (*.jpg;*.jpeg;*.png;*.webp;*.heic)|*.jpg;*.jpeg;*.png;*.webp;*.heic"
+  $dlg.Multiselect = $true
+  if ($dlg.ShowDialog() -eq "OK") { return @($dlg.FileNames) }
+  return @()
+}
+
+function Update-ReceiptDisplay([System.Windows.Forms.TextBox]$textBox) {
+  $parts = @()
+  if ($script:receiptFolder) { $parts += "폴더: $script:receiptFolder" }
+  if ($script:receiptFiles.Count -gt 0) { $parts += "파일 $($script:receiptFiles.Count)개" }
+  $textBox.Text = if ($parts.Count -gt 0) { $parts -join " | " } else { "" }
+}
+
+function Get-ReceiptImagePaths {
+  $paths = New-Object System.Collections.Generic.List[string]
+  if ($script:receiptFolder -and (Test-Path -LiteralPath $script:receiptFolder)) {
+    Get-ChildItem -LiteralPath $script:receiptFolder -File |
+      Where-Object { $_.Extension -match '(?i)\.(jpg|jpeg|png|webp|heic)$' } |
+      ForEach-Object { $paths.Add($_.FullName) | Out-Null }
+  }
+  foreach ($f in $script:receiptFiles) {
+    if ($f -and (Test-Path -LiteralPath $f)) { $paths.Add([string]$f) | Out-Null }
+  }
+  return @(
+    $paths |
+      Select-Object -Unique |
+      Sort-Object { [System.IO.Path]::GetFileName($_) }
+  )
 }
 
 function Load-Transactions([string]$path) {
@@ -61,11 +95,12 @@ $form.Controls.Add($tbTemplate)
 $btnTpl = New-Object System.Windows.Forms.Button; $btnTpl.Text = "찾기"; $btnTpl.Location = New-Object System.Drawing.Point(675, ($y+20)); $btnTpl.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnTpl)
 $y += 58
 
-Add-Lbl "영수증 폴더 (선택, 파일명 순으로 첨부)" $y
+Add-Lbl "영수증 (선택, 파일명 순 — 폴더 또는 여러 파일)" $y
 $tbReceipts = New-Object System.Windows.Forms.TextBox
-$tbReceipts.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbReceipts.Size = New-Object System.Drawing.Size(650, 24); $tbReceipts.ReadOnly = $true
+$tbReceipts.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbReceipts.Size = New-Object System.Drawing.Size(555, 24); $tbReceipts.ReadOnly = $true
 $form.Controls.Add($tbReceipts)
-$btnRcpt = New-Object System.Windows.Forms.Button; $btnRcpt.Text = "찾기"; $btnRcpt.Location = New-Object System.Drawing.Point(675, ($y+20)); $btnRcpt.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnRcpt)
+$btnRcptFolder = New-Object System.Windows.Forms.Button; $btnRcptFolder.Text = "폴더"; $btnRcptFolder.Location = New-Object System.Drawing.Point(580, ($y+20)); $btnRcptFolder.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnRcptFolder)
+$btnRcptFiles = New-Object System.Windows.Forms.Button; $btnRcptFiles.Text = "파일"; $btnRcptFiles.Location = New-Object System.Drawing.Point(670, ($y+20)); $btnRcptFiles.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnRcptFiles)
 $y += 58
 
 Add-Lbl "엑셀 기본값: 계정 | 거래처 | 사용자 | 업무상세" $y
@@ -258,9 +293,20 @@ $btnTpl.Add_Click({
   if ($p) { $script:templatePath = $p; $tbTemplate.Text = $p }
 })
 
-$btnRcpt.Add_Click({
+$btnRcptFolder.Add_Click({
   $p = Pick-Folder "영수증 폴더"
-  if ($p) { $script:receiptFolder = $p; $tbReceipts.Text = $p }
+  if ($p) {
+    $script:receiptFolder = $p
+    Update-ReceiptDisplay $tbReceipts
+  }
+})
+
+$btnRcptFiles.Add_Click({
+  $files = Pick-ImageFiles "영수증 이미지 (여러 개 선택 가능)"
+  if ($files.Count -gt 0) {
+    $script:receiptFiles = @($files)
+    Update-ReceiptDisplay $tbReceipts
+  }
 })
 
 $btnGenerate.Add_Click({
@@ -287,10 +333,7 @@ $btnGenerate.Add_Click({
     -UserName $tbUser.Text
   if ($saveDlg.ShowDialog() -ne "OK") { return }
 
-  $imagePaths = @()
-  if ($script:receiptFolder -and (Test-Path $script:receiptFolder)) {
-    $imagePaths = @(Get-ChildItem -LiteralPath $script:receiptFolder -File | Where-Object { $_.Extension -match '(?i)\.(jpg|jpeg|png|webp|heic)$' } | Sort-Object Name | ForEach-Object { $_.FullName })
-  }
+  $imagePaths = @(Get-ReceiptImagePaths)
 
   Save-Settings @{
     account            = $tbAccount.Text
