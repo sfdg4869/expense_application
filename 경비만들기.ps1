@@ -1,0 +1,206 @@
+﻿# 경비신청서 자동 작성 (PowerShell + Excel COM)
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+chcp 65001 | Out-Null
+
+$ScriptDir = $PSScriptRoot
+. (Join-Path $ScriptDir "scripts\ExpenseCommon.ps1")
+
+$settings = Load-Settings
+$script:statementPath = ""
+$script:templatePath = ""
+$script:receiptFolder = ""
+$script:transactions = @()
+
+function Pick-File([string]$title, [string]$filter) {
+  $dlg = New-Object System.Windows.Forms.OpenFileDialog
+  $dlg.Title = $title
+  $dlg.Filter = $filter
+  if ($dlg.ShowDialog() -eq "OK") { return $dlg.FileName }
+  return $null
+}
+
+function Pick-Folder([string]$title) {
+  $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+  $dlg.Description = $title
+  if ($dlg.ShowDialog() -eq "OK") { return $dlg.SelectedPath }
+  return $null
+}
+
+function Load-Transactions([string]$path) {
+  $jsonPath = Join-Path $env:TEMP ("expense-tx-" + [guid]::NewGuid().ToString() + ".json")
+  $readScript = Join-Path $ScriptDir "scripts\read-card-statement.ps1"
+  $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $readScript -StatementPath $path -OutputJsonPath $jsonPath 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "명세서 읽기 실패: $out" }
+  $data = Get-Content $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  Remove-Item $jsonPath -Force -ErrorAction SilentlyContinue
+  return @($data.transactions)
+}
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "경비신청서 만들기"
+$form.Size = New-Object System.Drawing.Size(900, 720)
+$form.StartPosition = "CenterScreen"
+$form.Font = New-Object System.Drawing.Font("Malgun Gothic", 10)
+
+$y = 15
+function Add-Lbl([string]$t,[int]$py) { $l=New-Object System.Windows.Forms.Label; $l.Text=$t; $l.Location=New-Object System.Drawing.Point(15,$py); $l.AutoSize=$true; $form.Controls.Add($l) }
+
+Add-Lbl "카드 사용내역 (.xls)" $y
+$tbStatement = New-Object System.Windows.Forms.TextBox
+$tbStatement.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbStatement.Size = New-Object System.Drawing.Size(650, 24); $tbStatement.ReadOnly = $true
+$form.Controls.Add($tbStatement)
+$btnStmt = New-Object System.Windows.Forms.Button; $btnStmt.Text = "찾기"; $btnStmt.Location = New-Object System.Drawing.Point(675, ($y+20)); $btnStmt.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnStmt)
+$y += 58
+
+Add-Lbl "회사 양식 (.xls)" $y
+$tbTemplate = New-Object System.Windows.Forms.TextBox
+$tbTemplate.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbTemplate.Size = New-Object System.Drawing.Size(650, 24); $tbTemplate.ReadOnly = $true
+$form.Controls.Add($tbTemplate)
+$btnTpl = New-Object System.Windows.Forms.Button; $btnTpl.Text = "찾기"; $btnTpl.Location = New-Object System.Drawing.Point(675, ($y+20)); $btnTpl.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnTpl)
+$y += 58
+
+Add-Lbl "영수증 폴더 (선택, 파일명 순으로 첨부)" $y
+$tbReceipts = New-Object System.Windows.Forms.TextBox
+$tbReceipts.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbReceipts.Size = New-Object System.Drawing.Size(650, 24); $tbReceipts.ReadOnly = $true
+$form.Controls.Add($tbReceipts)
+$btnRcpt = New-Object System.Windows.Forms.Button; $btnRcpt.Text = "찾기"; $btnRcpt.Location = New-Object System.Drawing.Point(675, ($y+20)); $btnRcpt.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnRcpt)
+$y += 58
+
+Add-Lbl "기본값: 계정 | 거래처 | 사용자 | 업무상세" $y
+$tbAccount = New-Object System.Windows.Forms.TextBox; $tbAccount.Text = $settings.account; $tbAccount.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbAccount.Width = 100
+$tbClient = New-Object System.Windows.Forms.TextBox; $tbClient.Text = $settings.client; $tbClient.Location = New-Object System.Drawing.Point(125, ($y+22)); $tbClient.Width = 100
+$tbUser = New-Object System.Windows.Forms.TextBox; $tbUser.Text = $settings.userName; $tbUser.Location = New-Object System.Drawing.Point(235, ($y+22)); $tbUser.Width = 100
+$tbDetail = New-Object System.Windows.Forms.TextBox; $tbDetail.Text = $settings.detail; $tbDetail.Location = New-Object System.Drawing.Point(345, ($y+22)); $tbDetail.Width = 120
+$form.Controls.AddRange(@($tbAccount,$tbClient,$tbUser,$tbDetail))
+$y += 58
+
+$grid = New-Object System.Windows.Forms.DataGridView
+$grid.Location = New-Object System.Drawing.Point(15, $y)
+$grid.Size = New-Object System.Drawing.Size(850, 280)
+$grid.AllowUserToAddRows = $false
+$grid.AutoSizeColumnsMode = "Fill"
+[void]$grid.Columns.Add("useDate", "이용일")
+[void]$grid.Columns.Add("merchant", "가맹점")
+[void]$grid.Columns.Add("claim", "청구금액")
+[void]$grid.Columns.Add("personal", "개인사용")
+$grid.Columns["useDate"].ReadOnly = $true
+$grid.Columns["merchant"].ReadOnly = $true
+$grid.Columns["claim"].ReadOnly = $true
+$form.Controls.Add($grid)
+$y += 295
+
+$lblStatus = New-Object System.Windows.Forms.Label
+$lblStatus.Location = New-Object System.Drawing.Point(15, $y)
+$lblStatus.Size = New-Object System.Drawing.Size(850, 50)
+$form.Controls.Add($lblStatus)
+$y += 55
+
+$btnGenerate = New-Object System.Windows.Forms.Button
+$btnGenerate.Text = "완성 엑셀 만들기"
+$btnGenerate.Location = New-Object System.Drawing.Point(15, $y)
+$btnGenerate.Size = New-Object System.Drawing.Size(200, 36)
+$form.Controls.Add($btnGenerate)
+
+function Refresh-Grid {
+  $grid.Rows.Clear()
+  foreach ($tx in $script:transactions) {
+    [void]$grid.Rows.Add($tx.useDate, $tx.merchant, [double]$tx.domesticClaimAmount, [double]$tx.personalUseAmount)
+  }
+}
+
+$btnStmt.Add_Click({
+  $p = Pick-File "카드 사용내역" "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+  if (-not $p) { return }
+  try {
+    $script:statementPath = $p
+    $tbStatement.Text = $p
+    $script:transactions = Load-Transactions $p
+    Refresh-Grid
+    $lblStatus.Text = "$($script:transactions.Count)건 불러옴"
+    $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+  } catch {
+    $lblStatus.Text = $_.Exception.Message
+    $lblStatus.ForeColor = [System.Drawing.Color]::DarkRed
+  }
+})
+
+$btnTpl.Add_Click({
+  $p = Pick-File "회사 양식" "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
+  if ($p) { $script:templatePath = $p; $tbTemplate.Text = $p }
+})
+
+$btnRcpt.Add_Click({
+  $p = Pick-Folder "영수증 폴더"
+  if ($p) { $script:receiptFolder = $p; $tbReceipts.Text = $p }
+})
+
+$btnGenerate.Add_Click({
+  $lblStatus.Text = ""
+  if (-not $script:statementPath -or -not $script:templatePath) {
+    $lblStatus.Text = "명세서와 회사 양식을 선택하세요."
+    $lblStatus.ForeColor = [System.Drawing.Color]::DarkRed
+    return
+  }
+  if ($script:transactions.Count -eq 0) {
+    try { $script:transactions = Load-Transactions $script:statementPath; Refresh-Grid } catch {
+      $lblStatus.Text = $_.Exception.Message; return
+    }
+  }
+
+  for ($i = 0; $i -lt $grid.Rows.Count; $i++) {
+    if ($i -lt $script:transactions.Count) {
+      $script:transactions[$i].personalUseAmount = [double]$grid.Rows[$i].Cells["personal"].Value
+    }
+  }
+
+  $month = "00"
+  if ($script:transactions[0].useDate -match "\.(\d{2})\.") { $month = $Matches[1] }
+  $saveDlg = New-Object System.Windows.Forms.SaveFileDialog
+  $saveDlg.Filter = "Excel 97-2003 (*.xls)|*.xls"
+  $saveDlg.FileName = "제경비신청서_${month}월.xls"
+  if ($saveDlg.ShowDialog() -ne "OK") { return }
+
+  $imagePaths = @()
+  if ($script:receiptFolder -and (Test-Path $script:receiptFolder)) {
+    $imagePaths = @(Get-ChildItem -LiteralPath $script:receiptFolder -File | Where-Object { $_.Extension -match '(?i)\.(jpg|jpeg|png|webp|heic)$' } | Sort-Object Name | ForEach-Object { $_.FullName })
+  }
+
+  Save-Settings @{ account=$tbAccount.Text; client=$tbClient.Text; userName=$tbUser.Text; detail=$tbDetail.Text }
+
+  $job = @{
+    templatePath = $script:templatePath
+    outputPath = $saveDlg.FileName
+    transactions = $script:transactions
+    defaults = @{ account=$tbAccount.Text; client=$tbClient.Text; userName=$tbUser.Text; detail=$tbDetail.Text }
+    imagePaths = $imagePaths
+  }
+  $jobPath = Join-Path $env:TEMP ("expense-job-" + [guid]::NewGuid().ToString() + ".json")
+  $job | ConvertTo-Json -Depth 8 | Set-Content $jobPath -Encoding UTF8
+
+  $fillScript = Join-Path $ScriptDir "scripts\fill-expense-form.ps1"
+  $btnGenerate.Enabled = $false
+  $lblStatus.Text = "작성 중... (Excel)"
+  $form.Refresh()
+
+  try {
+    $fillOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fillScript -ConfigPath $jobPath 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      $msg = ($fillOut | Out-String).Trim()
+      if ($msg -eq "") { $msg = "엑셀 작성 실패. 열려 있는 Excel을 모두 닫고 다시 시도하세요." }
+      throw $msg
+    }
+    $lblStatus.Text = "저장됨: $($saveDlg.FileName)"
+    $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+    [System.Windows.Forms.MessageBox]::Show("완료`n$($saveDlg.FileName)", "완료") | Out-Null
+  } catch {
+    $lblStatus.Text = $_.Exception.Message
+    $lblStatus.ForeColor = [System.Drawing.Color]::DarkRed
+  } finally {
+    $btnGenerate.Enabled = $true
+    Remove-Item $jobPath -Force -ErrorAction SilentlyContinue
+  }
+})
+
+[void]$form.ShowDialog()
