@@ -130,56 +130,114 @@ try {
       }
     }
 
+    function Get-SlotBounds($sheet, [string]$addr) {
+      # 병합 셀 때문에 Range.Width가 커지는 경우 방지 — 좌상·우하 셀 기준
+      $rng = $sheet.Range($addr)
+      $tl = $rng.Cells.Item(1, 1)
+      $br = $rng.Cells.Item($rng.Rows.Count, $rng.Columns.Count)
+      $left = [double]$tl.Left
+      $top = [double]$tl.Top
+      $w = ([double]$br.Left + [double]$br.Width) - $left
+      $h = ([double]$br.Top + [double]$br.Height) - $top
+      return @{ Left = $left; Top = $top; W = [Math]::Max(1, $w); H = [Math]::Max(1, $h) }
+    }
+
     function Get-ReceiptImageSlots($sheet) {
-      # 템플릿 점선 칸: A3:D21 한 칸, E3:H21, I3:L21, M3:P21 / 아래줄 동일
-      $addresses = @(
-        "A3:D21", "E3:H21", "I3:L21", "M3:P21",
-        "A22:D40", "E22:H40", "I22:L40", "M22:P40"
-      )
       $slots = New-Object System.Collections.Generic.List[object]
-      foreach ($addr in $addresses) {
+
+      # 위 4칸: 잘 나오던 방식 그대로 (Range 전체 + cover)
+      foreach ($addr in @("A3:D21", "E3:H21", "I3:L21", "M3:P21")) {
         $r = $sheet.Range($addr)
         $slots.Add(@{
           Left = [double]$r.Left
           Top = [double]$r.Top
           W = [Math]::Max(1, [double]$r.Width)
           H = [Math]::Max(1, [double]$r.Height)
+          Fit = "cover"
+        }) | Out-Null
+      }
+
+      # 아래 4칸만: 22~40행 실선 박스 + 병합셀 보정
+      foreach ($addr in @("A22:D40", "E22:H40", "I22:L40", "M22:P40")) {
+        $b = Get-SlotBounds $sheet $addr
+        $slots.Add(@{
+          Left = $b.Left
+          Top = $b.Top
+          W = $b.W
+          H = $b.H
+          Fit = "cover"
         }) | Out-Null
       }
       return $slots
     }
 
-    function Get-ImageSizeInPoints([string]$path) {
-      $img = [System.Drawing.Image]::FromFile($path)
+    function New-ResizedImageForSlot([string]$srcPath, $slot) {
+      $targetW = [Math]::Max(1, [int][Math]::Round($slot.W * 96.0 / 72.0))
+      $targetH = [Math]::Max(1, [int][Math]::Round($slot.H * 96.0 / 72.0))
+      $fit = [string](As-Text $slot.Fit)
+      if ($fit -eq "") { $fit = "cover" }
+
+      $src = [System.Drawing.Image]::FromFile($srcPath)
+      $bmp = $null
       try {
-        $w = [double]$img.Width * 72.0 / 96.0
-        $h = [double]$img.Height * 72.0 / 96.0
-        return @{ W = $w; H = $h }
+        $bmp = New-Object System.Drawing.Bitmap($targetW, $targetH)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        try {
+          $g.Clear([System.Drawing.Color]::White)
+          $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+          if ($fit -eq "contain") {
+            $scale = [Math]::Min($targetW / $src.Width, $targetH / $src.Height) * 0.98
+            $drawW = [Math]::Max(1, [int][Math]::Round($src.Width * $scale))
+            $drawH = [Math]::Max(1, [int][Math]::Round($src.Height * $scale))
+            $x = [int][Math]::Round(($targetW - $drawW) / 2)
+            $y = [int][Math]::Round(($targetH - $drawH) / 2)
+            $g.DrawImage($src, $x, $y, $drawW, $drawH)
+          }
+          else {
+            $scale = [Math]::Max($targetW / $src.Width, $targetH / $src.Height)
+            $srcX = ($src.Width * $scale - $targetW) / 2.0 / $scale
+            $srcY = ($src.Height * $scale - $targetH) / 2.0 / $scale
+            $srcW = $targetW / $scale
+            $srcH = $targetH / $scale
+            $dest = New-Object System.Drawing.Rectangle(0, 0, $targetW, $targetH)
+            $source = New-Object System.Drawing.Rectangle(
+              [int][Math]::Round($srcX),
+              [int][Math]::Round($srcY),
+              [Math]::Max(1, [int][Math]::Round($srcW)),
+              [Math]::Max(1, [int][Math]::Round($srcH))
+            )
+            $g.DrawImage($src, $dest, $source, [System.Drawing.GraphicsUnit]::Pixel)
+          }
+        }
+        finally { $g.Dispose() }
+
+        $tempPath = Join-Path $env:TEMP ("expense_" + [Guid]::NewGuid().ToString("N") + ".jpg")
+        $bmp.Save($tempPath, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+        return $tempPath
       }
-      finally { $img.Dispose() }
+      finally {
+        if ($bmp) { $bmp.Dispose() }
+        $src.Dispose()
+      }
     }
 
-    function Add-FitPicture($sheet, [string]$imgPath, $slot) {
+    function Add-SlotPicture($sheet, [string]$imgPath, $slot) {
       if ($imgPath -eq "" -or -not (Test-Path -LiteralPath $imgPath)) { return }
 
-      $orig = Get-ImageSizeInPoints $imgPath
-      if ($orig.W -le 0 -or $orig.H -le 0) { return }
-
-      # A3:D21 칸(Left/Top/Width/Height) 안에 전부 들어가게 맞춤
-      $scale = [Math]::Min($slot.W / $orig.W, $slot.H / $orig.H)
-      $fitW = $orig.W * $scale
-      $fitH = $orig.H * $scale
-
-      $left = $slot.Left + (($slot.W - $fitW) / 2)
-      $top = $slot.Top + (($slot.H - $fitH) / 2)
-      if ($left -lt $slot.Left) { $left = $slot.Left }
-      if ($top -lt $slot.Top) { $top = $slot.Top }
-      if (($left + $fitW) -gt ($slot.Left + $slot.W)) { $left = $slot.Left + $slot.W - $fitW }
-      if (($top + $fitH) -gt ($slot.Top + $slot.H)) { $top = $slot.Top + $slot.H - $fitH }
-
-      $pic = $sheet.Shapes.AddPicture($imgPath, $false, $true, $left, $top, $fitW, $fitH)
-      $pic.LockAspectRatio = -1
-      $pic.Placement = 1
+      $tempPath = $null
+      try {
+        $tempPath = New-ResizedImageForSlot $imgPath $slot
+        $pic = $sheet.Shapes.AddPicture($tempPath, $false, $true, $slot.Left, $slot.Top, $slot.W, $slot.H)
+        $pic.LockAspectRatio = 0
+        $pic.Placement = 1
+      }
+      finally {
+        if ($tempPath -and (Test-Path -LiteralPath $tempPath)) {
+          Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+      }
     }
 
     $templateReceiptIdx = 2
@@ -200,7 +258,7 @@ try {
       for ($s = 0; $s -lt $slots.Count; $s++) {
         if ($imgIndex -ge $images.Count) { break }
         $imgPath = [string](As-Text $images[$imgIndex])
-        try { Add-FitPicture $rs $imgPath $slots[$s] } catch {}
+        try { Add-SlotPicture $rs $imgPath $slots[$s] } catch {}
         $imgIndex++
       }
     }
