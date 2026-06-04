@@ -119,6 +119,8 @@ try {
 
   $imgIndex = 0
   if ($images.Count -gt 0) {
+    Add-Type -AssemblyName System.Drawing
+
     function Remove-ReceiptPictures($sheet) {
       for ($i = $sheet.Shapes.Count; $i -ge 1; $i--) {
         try {
@@ -129,29 +131,55 @@ try {
     }
 
     function Get-ReceiptImageSlots($sheet) {
-      $boxes = @(
-        $sheet.Range("A3:H21"),
-        $sheet.Range("I3:P21"),
-        $sheet.Range("A22:H40"),
-        $sheet.Range("I22:P40")
+      # 템플릿 점선 칸: A3:D21 한 칸, E3:H21, I3:L21, M3:P21 / 아래줄 동일
+      $addresses = @(
+        "A3:D21", "E3:H21", "I3:L21", "M3:P21",
+        "A22:D40", "E22:H40", "I22:L40", "M22:P40"
       )
       $slots = New-Object System.Collections.Generic.List[object]
-      foreach ($box in $boxes) {
-        $halfW = $box.Width / 2
-        $slots.Add(@{ Left = $box.Left; Top = $box.Top; W = $halfW; H = $box.Height }) | Out-Null
-        $slots.Add(@{ Left = ($box.Left + $halfW); Top = $box.Top; W = $halfW; H = $box.Height }) | Out-Null
+      foreach ($addr in $addresses) {
+        $r = $sheet.Range($addr)
+        $slots.Add(@{
+          Left = [double]$r.Left
+          Top = [double]$r.Top
+          W = [Math]::Max(1, [double]$r.Width)
+          H = [Math]::Max(1, [double]$r.Height)
+        }) | Out-Null
       }
       return $slots
     }
 
-    function Add-CoverPicture($sheet, [string]$imgPath, $slot) {
+    function Get-ImageSizeInPoints([string]$path) {
+      $img = [System.Drawing.Image]::FromFile($path)
+      try {
+        $w = [double]$img.Width * 72.0 / 96.0
+        $h = [double]$img.Height * 72.0 / 96.0
+        return @{ W = $w; H = $h }
+      }
+      finally { $img.Dispose() }
+    }
+
+    function Add-FitPicture($sheet, [string]$imgPath, $slot) {
       if ($imgPath -eq "" -or -not (Test-Path -LiteralPath $imgPath)) { return }
-      $pic = $sheet.Shapes.AddPicture($imgPath, $false, $true, $slot.Left, $slot.Top, 10, 10)
-      $scale = [Math]::Max($slot.W / $pic.Width, $slot.H / $pic.Height)
-      $pic.Width = $pic.Width * $scale
-      $pic.Height = $pic.Height * $scale
-      $pic.Left = $slot.Left + (($slot.W - $pic.Width) / 2)
-      $pic.Top = $slot.Top + (($slot.H - $pic.Height) / 2)
+
+      $orig = Get-ImageSizeInPoints $imgPath
+      if ($orig.W -le 0 -or $orig.H -le 0) { return }
+
+      # A3:D21 칸(Left/Top/Width/Height) 안에 전부 들어가게 맞춤
+      $scale = [Math]::Min($slot.W / $orig.W, $slot.H / $orig.H)
+      $fitW = $orig.W * $scale
+      $fitH = $orig.H * $scale
+
+      $left = $slot.Left + (($slot.W - $fitW) / 2)
+      $top = $slot.Top + (($slot.H - $fitH) / 2)
+      if ($left -lt $slot.Left) { $left = $slot.Left }
+      if ($top -lt $slot.Top) { $top = $slot.Top }
+      if (($left + $fitW) -gt ($slot.Left + $slot.W)) { $left = $slot.Left + $slot.W - $fitW }
+      if (($top + $fitH) -gt ($slot.Top + $slot.H)) { $top = $slot.Top + $slot.H - $fitH }
+
+      $pic = $sheet.Shapes.AddPicture($imgPath, $false, $true, $left, $top, $fitW, $fitH)
+      $pic.LockAspectRatio = -1
+      $pic.Placement = 1
     }
 
     $templateReceiptIdx = 2
@@ -172,7 +200,7 @@ try {
       for ($s = 0; $s -lt $slots.Count; $s++) {
         if ($imgIndex -ge $images.Count) { break }
         $imgPath = [string](As-Text $images[$imgIndex])
-        try { Add-CoverPicture $rs $imgPath $slots[$s] } catch {}
+        try { Add-FitPicture $rs $imgPath $slots[$s] } catch {}
         $imgIndex++
       }
     }
