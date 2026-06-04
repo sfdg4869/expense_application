@@ -65,6 +65,8 @@ try {
       cardColumns = $cols
       domesticClaimAmount = $claim
       personalUseAmount = 0
+      headCount = 1
+      companions = ""
       merchant = $merchant
       useDate = $useDate
     })

@@ -100,10 +100,12 @@ try {
 
     $personal = As-Number $tx.personalUseAmount
     $cardCol6 = As-Number (Get-ColValue -Cols $cols -Index 5)
+    if ($cardCol6 -le 0) { $cardCol6 = Get-TransactionClaimAmount $tx }
     $expenseAmount = $cardCol6 - $personal
 
-    $userName = As-Text $tx.userName
-    if ($userName -eq "") { $userName = As-Text $defaults.userName }
+    $baseUser = As-Text $tx.userName
+    if ($baseUser -eq "") { $baseUser = As-Text $defaults.userName }
+    $userName = Format-UserCell -UserName $baseUser -Companions (As-Text $tx.companions)
     $detail = As-Text $tx.detail
     if ($detail -eq "") { $detail = As-Text $defaults.detail }
 
@@ -117,44 +119,63 @@ try {
 
   $imgIndex = 0
   if ($images.Count -gt 0) {
-  for ($si = 2; $si -le [Math]::Min(3, $wb.Worksheets.Count); $si++) {
-    $rs = $wb.Worksheets.Item($si)
-    for ($i = $rs.Shapes.Count; $i -ge 1; $i--) {
-      try {
-        $shape = $rs.Shapes.Item($i)
-        if ($shape.Type -eq 13 -or $shape.Type -eq 11) { $shape.Delete() }
-      } catch {}
-    }
-
-    $box1 = $rs.Range("A3:H21")
-    $box2 = $rs.Range("I3:P21")
-    $slots = @(
-      @{ Left = $box1.Left; Top = $box1.Top; W = ($box1.Width / 2); H = $box1.Height },
-      @{ Left = ($box1.Left + ($box1.Width / 2)); Top = $box1.Top; W = ($box1.Width / 2); H = $box1.Height },
-      @{ Left = $box2.Left; Top = $box2.Top; W = ($box2.Width / 2); H = $box2.Height },
-      @{ Left = ($box2.Left + ($box2.Width / 2)); Top = $box2.Top; W = ($box2.Width / 2); H = $box2.Height }
-    )
-
-    foreach ($slot in $slots) {
-      if ($imgIndex -ge $images.Count) { break }
-      $imgPath = [string](As-Text $images[$imgIndex])
-      if ($imgPath -ne "" -and (Test-Path -LiteralPath $imgPath)) {
+    function Remove-ReceiptPictures($sheet) {
+      for ($i = $sheet.Shapes.Count; $i -ge 1; $i--) {
         try {
-          $pic = $rs.Shapes.AddPicture($imgPath, $false, $true, $slot.Left, $slot.Top, 10, 10)
-          $ratio = $pic.Width / [double]$pic.Height
-          $w = [double]$slot.W
-          $h = $w / $ratio
-          if ($h -gt $slot.H) { $h = [double]$slot.H; $w = $h * $ratio }
-          $pic.Width = $w
-          $pic.Height = $h
-          $pic.Left = $slot.Left + (($slot.W - $w) / 2)
-          $pic.Top = $slot.Top + (($slot.H - $h) / 2)
+          $shape = $sheet.Shapes.Item($i)
+          if ($shape.Type -eq 13 -or $shape.Type -eq 11) { $shape.Delete() }
         } catch {}
       }
-      $imgIndex++
     }
-    if ($imgIndex -ge $images.Count) { break }
-  }
+
+    function Get-ReceiptImageSlots($sheet) {
+      $boxes = @(
+        $sheet.Range("A3:H21"),
+        $sheet.Range("I3:P21"),
+        $sheet.Range("A22:H40"),
+        $sheet.Range("I22:P40")
+      )
+      $slots = New-Object System.Collections.Generic.List[object]
+      foreach ($box in $boxes) {
+        $halfW = $box.Width / 2
+        $slots.Add(@{ Left = $box.Left; Top = $box.Top; W = $halfW; H = $box.Height }) | Out-Null
+        $slots.Add(@{ Left = ($box.Left + $halfW); Top = $box.Top; W = $halfW; H = $box.Height }) | Out-Null
+      }
+      return $slots
+    }
+
+    function Add-CoverPicture($sheet, [string]$imgPath, $slot) {
+      if ($imgPath -eq "" -or -not (Test-Path -LiteralPath $imgPath)) { return }
+      $pic = $sheet.Shapes.AddPicture($imgPath, $false, $true, $slot.Left, $slot.Top, 10, 10)
+      $scale = [Math]::Max($slot.W / $pic.Width, $slot.H / $pic.Height)
+      $pic.Width = $pic.Width * $scale
+      $pic.Height = $pic.Height * $scale
+      $pic.Left = $slot.Left + (($slot.W - $pic.Width) / 2)
+      $pic.Top = $slot.Top + (($slot.H - $pic.Height) / 2)
+    }
+
+    $templateReceiptIdx = 2
+    $slotsPerSheet = 8
+    $neededSheets = [int][Math]::Ceiling($images.Count / [double]$slotsPerSheet)
+
+    # 템플릿에 지출증빙 시트는 1개뿐 — 9장부터는 첫 시트를 복사해 바로 뒤에 추가
+    for ($copy = 1; $copy -lt $neededSheets; $copy++) {
+      $insertAfterIdx = $templateReceiptIdx + $copy - 1
+      $wb.Worksheets.Item($templateReceiptIdx).Copy([Type]::Missing, $wb.Worksheets.Item($insertAfterIdx))
+    }
+
+    for ($batch = 0; $batch -lt $neededSheets; $batch++) {
+      $rs = $wb.Worksheets.Item($templateReceiptIdx + $batch)
+      Remove-ReceiptPictures $rs
+
+      $slots = Get-ReceiptImageSlots $rs
+      for ($s = 0; $s -lt $slots.Count; $s++) {
+        if ($imgIndex -ge $images.Count) { break }
+        $imgPath = [string](As-Text $images[$imgIndex])
+        try { Add-CoverPicture $rs $imgPath $slots[$s] } catch {}
+        $imgIndex++
+      }
+    }
   }
 
   $wb.Save()

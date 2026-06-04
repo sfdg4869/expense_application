@@ -40,7 +40,7 @@ function Load-Transactions([string]$path) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "경비신청서 만들기"
-$form.Size = New-Object System.Drawing.Size(900, 720)
+$form.Size = New-Object System.Drawing.Size(980, 760)
 $form.StartPosition = "CenterScreen"
 $form.Font = New-Object System.Drawing.Font("Malgun Gothic", 10)
 
@@ -68,7 +68,7 @@ $form.Controls.Add($tbReceipts)
 $btnRcpt = New-Object System.Windows.Forms.Button; $btnRcpt.Text = "찾기"; $btnRcpt.Location = New-Object System.Drawing.Point(675, ($y+20)); $btnRcpt.Size = New-Object System.Drawing.Size(80, 28); $form.Controls.Add($btnRcpt)
 $y += 58
 
-Add-Lbl "기본값: 계정 | 거래처 | 사용자 | 업무상세" $y
+Add-Lbl "엑셀 기본값: 계정 | 거래처 | 사용자 | 업무상세" $y
 $tbAccount = New-Object System.Windows.Forms.TextBox; $tbAccount.Text = $settings.account; $tbAccount.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbAccount.Width = 100
 $tbClient = New-Object System.Windows.Forms.TextBox; $tbClient.Text = $settings.client; $tbClient.Location = New-Object System.Drawing.Point(125, ($y+22)); $tbClient.Width = 100
 $tbUser = New-Object System.Windows.Forms.TextBox; $tbUser.Text = $settings.userName; $tbUser.Location = New-Object System.Drawing.Point(235, ($y+22)); $tbUser.Width = 100
@@ -76,20 +76,144 @@ $tbDetail = New-Object System.Windows.Forms.TextBox; $tbDetail.Text = $settings.
 $form.Controls.AddRange(@($tbAccount,$tbClient,$tbUser,$tbDetail))
 $y += 58
 
+Add-Lbl "저장 파일명: 부서 | 성명 (성명 = 사용자)" $y
+$tbDepartment = New-Object System.Windows.Forms.TextBox; $tbDepartment.Text = $settings.department; $tbDepartment.Location = New-Object System.Drawing.Point(15, ($y+22)); $tbDepartment.Width = 200
+$lblFileUser = New-Object System.Windows.Forms.Label; $lblFileUser.Location = New-Object System.Drawing.Point(225, ($y+24)); $lblFileUser.AutoSize = $true; $lblFileUser.ForeColor = [System.Drawing.Color]::Gray
+$form.Controls.AddRange(@($tbDepartment, $lblFileUser))
+$y += 58
+
+$tbUser.Add_TextChanged({
+  $lblFileUser.Text = if ($tbUser.Text) { $tbUser.Text } else { "(사용자 입력)" }
+})
+$lblFileUser.Text = if ($tbUser.Text) { $tbUser.Text } else { "(사용자 입력)" }
+
 $grid = New-Object System.Windows.Forms.DataGridView
 $grid.Location = New-Object System.Drawing.Point(15, $y)
-$grid.Size = New-Object System.Drawing.Size(850, 280)
+$grid.Size = New-Object System.Drawing.Size(930, 280)
 $grid.AllowUserToAddRows = $false
 $grid.AutoSizeColumnsMode = "Fill"
 [void]$grid.Columns.Add("useDate", "이용일")
 [void]$grid.Columns.Add("merchant", "가맹점")
 [void]$grid.Columns.Add("claim", "청구금액")
+[void]$grid.Columns.Add("headCount", "인원")
+[void]$grid.Columns.Add("companions", "동행자")
 [void]$grid.Columns.Add("personal", "개인사용")
 $grid.Columns["useDate"].ReadOnly = $true
 $grid.Columns["merchant"].ReadOnly = $true
 $grid.Columns["claim"].ReadOnly = $true
+$grid.Columns["headCount"].FillWeight = 40
+$grid.Columns["companions"].FillWeight = 80
 $form.Controls.Add($grid)
 $y += 295
+
+function Get-MealLimitPerPerson {
+  $limit = As-Number $settings.mealLimitPerPerson
+  if ($limit -le 0) { return 12000.0 }
+  return $limit
+}
+
+function Apply-MealToAllTransactions {
+  $apply = Test-MealLimitApplies $tbDetail.Text
+  $limit = Get-MealLimitPerPerson
+  foreach ($tx in $script:transactions) {
+    if (-not $tx.PSObject.Properties['headCount']) {
+      $tx | Add-Member -NotePropertyName headCount -NotePropertyValue 1 -Force
+    }
+    if (-not $tx.PSObject.Properties['companions']) {
+      $tx | Add-Member -NotePropertyName companions -NotePropertyValue "" -Force
+    }
+    if (-not $tx.PSObject.Properties['headCountManuallySet']) {
+      $tx | Add-Member -NotePropertyName headCountManuallySet -NotePropertyValue $false -Force
+    }
+    if (-not $tx.headCountManuallySet) {
+      $tx.headCount = Get-HeadCountFromCompanions `
+        -Companions (As-Text $tx.companions) `
+        -ApplyMealLimit:$apply
+    }
+    $hc = [int][Math]::Max(1, (As-Number $tx.headCount))
+    $tx.headCount = $hc
+    $claim = Get-TransactionClaimAmount $tx
+    $amounts = Compute-MealAmounts -ClaimAmount $claim -HeadCount $hc -LimitPerPerson $limit -ApplyMealLimit:$apply
+    $tx.personalUseAmount = $amounts.personal
+  }
+}
+
+function Recalc-RowMealPersonal([int]$rowIndex, [switch]$HeadCountManual) {
+  if ($rowIndex -lt 0 -or $rowIndex -ge $script:transactions.Count) { return }
+  $tx = $script:transactions[$rowIndex]
+  $apply = Test-MealLimitApplies $tbDetail.Text
+  $limit = Get-MealLimitPerPerson
+  $claim = Get-TransactionClaimAmount $tx
+  $tx.companions = As-Text $grid.Rows[$rowIndex].Cells["companions"].Value
+  if ($HeadCountManual) {
+    $tx.headCountManuallySet = $true
+    $hc = [int][Math]::Max(1, (As-Number $grid.Rows[$rowIndex].Cells["headCount"].Value))
+  }
+  elseif (-not $tx.headCountManuallySet) {
+    $hc = Get-HeadCountFromCompanions -Companions $tx.companions -ApplyMealLimit:$apply
+    $tx.headCount = $hc
+    $grid.Rows[$rowIndex].Cells["headCount"].Value = $hc
+  }
+  else {
+    $hc = [int][Math]::Max(1, (As-Number $grid.Rows[$rowIndex].Cells["headCount"].Value))
+  }
+  $tx.headCount = $hc
+  $amounts = Compute-MealAmounts -ClaimAmount $claim -HeadCount $hc -LimitPerPerson $limit -ApplyMealLimit:$apply
+  $tx.personalUseAmount = $amounts.personal
+  $grid.Rows[$rowIndex].Cells["personal"].Value = $amounts.personal
+}
+
+function Recalc-AllMealFromGrid {
+  for ($i = 0; $i -lt $grid.Rows.Count; $i++) {
+    if ($i -ge $script:transactions.Count) { break }
+    $tx = $script:transactions[$i]
+    $tx.companions = As-Text $grid.Rows[$i].Cells["companions"].Value
+    if ($tx.headCountManuallySet) {
+      $tx.headCount = [int][Math]::Max(1, (As-Number $grid.Rows[$i].Cells["headCount"].Value))
+    }
+    else {
+      $apply = Test-MealLimitApplies $tbDetail.Text
+      $tx.headCount = Get-HeadCountFromCompanions -Companions $tx.companions -ApplyMealLimit:$apply
+      $grid.Rows[$i].Cells["headCount"].Value = $tx.headCount
+    }
+    $apply = Test-MealLimitApplies $tbDetail.Text
+    $limit = Get-MealLimitPerPerson
+    $claim = Get-TransactionClaimAmount $tx
+    $amounts = Compute-MealAmounts -ClaimAmount $claim -HeadCount $tx.headCount -LimitPerPerson $limit -ApplyMealLimit:$apply
+    $tx.personalUseAmount = $amounts.personal
+    $grid.Rows[$i].Cells["personal"].Value = $amounts.personal
+  }
+}
+
+function Refresh-Grid {
+  Apply-MealToAllTransactions
+  $grid.Rows.Clear()
+  foreach ($tx in $script:transactions) {
+    $hc = if ($tx.headCount) { [int]$tx.headCount } else { 1 }
+    $comp = if ($tx.companions) { As-Text $tx.companions } else { "" }
+    $claim = Get-TransactionClaimAmount $tx
+    [void]$grid.Rows.Add($tx.useDate, $tx.merchant, $claim, $hc, $comp, [double]$tx.personalUseAmount)
+  }
+}
+
+$grid.Add_CellEndEdit({
+  param($sender, $e)
+  if ($e.ColumnIndex -lt 0) { return }
+  $colName = $grid.Columns[$e.ColumnIndex].Name
+  if ($colName -eq "headCount") {
+    Recalc-RowMealPersonal $e.RowIndex -HeadCountManual
+  }
+  elseif ($colName -eq "companions") {
+    if ($e.RowIndex -lt $script:transactions.Count) {
+      $script:transactions[$e.RowIndex].headCountManuallySet = $false
+    }
+    Recalc-RowMealPersonal $e.RowIndex
+  }
+})
+
+$tbDetail.Add_TextChanged({
+  if ($script:transactions.Count -gt 0) { Refresh-Grid }
+})
 
 $lblStatus = New-Object System.Windows.Forms.Label
 $lblStatus.Location = New-Object System.Drawing.Point(15, $y)
@@ -103,10 +227,13 @@ $btnGenerate.Location = New-Object System.Drawing.Point(15, $y)
 $btnGenerate.Size = New-Object System.Drawing.Size(200, 36)
 $form.Controls.Add($btnGenerate)
 
-function Refresh-Grid {
-  $grid.Rows.Clear()
-  foreach ($tx in $script:transactions) {
-    [void]$grid.Rows.Add($tx.useDate, $tx.merchant, [double]$tx.domesticClaimAmount, [double]$tx.personalUseAmount)
+function Sync-GridToTransactions {
+  Recalc-AllMealFromGrid
+  for ($i = 0; $i -lt $grid.Rows.Count; $i++) {
+    if ($i -ge $script:transactions.Count) { break }
+    $script:transactions[$i].headCount = [int][Math]::Max(1, (As-Number $grid.Rows[$i].Cells["headCount"].Value))
+    $script:transactions[$i].companions = As-Text $grid.Rows[$i].Cells["companions"].Value
+    $script:transactions[$i].personalUseAmount = [double]$grid.Rows[$i].Cells["personal"].Value
   }
 }
 
@@ -149,17 +276,15 @@ $btnGenerate.Add_Click({
     }
   }
 
-  for ($i = 0; $i -lt $grid.Rows.Count; $i++) {
-    if ($i -lt $script:transactions.Count) {
-      $script:transactions[$i].personalUseAmount = [double]$grid.Rows[$i].Cells["personal"].Value
-    }
-  }
+  Sync-GridToTransactions
 
-  $month = "00"
-  if ($script:transactions[0].useDate -match "\.(\d{2})\.") { $month = $Matches[1] }
   $saveDlg = New-Object System.Windows.Forms.SaveFileDialog
   $saveDlg.Filter = "Excel 97-2003 (*.xls)|*.xls"
-  $saveDlg.FileName = "제경비신청서_${month}월.xls"
+  $saveDlg.InitialDirectory = Split-Path -Parent $script:templatePath
+  $saveDlg.FileName = Get-OutputFileName `
+    -TemplatePath $script:templatePath `
+    -Department $tbDepartment.Text `
+    -UserName $tbUser.Text
   if ($saveDlg.ShowDialog() -ne "OK") { return }
 
   $imagePaths = @()
@@ -167,7 +292,14 @@ $btnGenerate.Add_Click({
     $imagePaths = @(Get-ChildItem -LiteralPath $script:receiptFolder -File | Where-Object { $_.Extension -match '(?i)\.(jpg|jpeg|png|webp|heic)$' } | Sort-Object Name | ForEach-Object { $_.FullName })
   }
 
-  Save-Settings @{ account=$tbAccount.Text; client=$tbClient.Text; userName=$tbUser.Text; detail=$tbDetail.Text }
+  Save-Settings @{
+    account            = $tbAccount.Text
+    client             = $tbClient.Text
+    department         = $tbDepartment.Text
+    userName           = $tbUser.Text
+    detail             = $tbDetail.Text
+    mealLimitPerPerson = Get-MealLimitPerPerson
+  }
 
   $job = @{
     templatePath = $script:templatePath
