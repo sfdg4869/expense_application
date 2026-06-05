@@ -45,6 +45,7 @@ function Set-CellValue {
 
 function Clear-UsageRows {
   param($Sheet, [int]$StartRow, [int]$EndRow)
+  # 15·21열은 수식열 — 건드리지 않음
   $cols = @(1..14) + @(16..20)
   foreach ($r in $StartRow..$EndRow) {
     foreach ($c in $cols) {
@@ -101,6 +102,7 @@ try {
     $personal = As-Number $tx.personalUseAmount
     $cardCol6 = As-Number (Get-ColValue -Cols $cols -Index 5)
     if ($cardCol6 -le 0) { $cardCol6 = Get-TransactionClaimAmount $tx }
+    # 20열 경비신청 = min(청구, 12,000×인원), 21열 개인사용은 양식 수식
     $expenseAmount = $cardCol6 - $personal
 
     $baseUser = As-Text $tx.userName
