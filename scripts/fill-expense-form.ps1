@@ -173,6 +173,27 @@ try {
       return $slots
     }
 
+    function New-OrientationCorrectedBitmap([System.Drawing.Image]$img) {
+      $orientation = 1
+      try {
+        if ($img.PropertyIdList -contains 274) {
+          $orientation = [int]$img.GetPropertyItem(274).Value[0]
+        }
+      } catch {}
+
+      $bmp = New-Object System.Drawing.Bitmap($img)
+      switch ($orientation) {
+        2 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::RotateNoneFlipX) }
+        3 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::Rotate180FlipNone) }
+        4 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::Rotate180FlipX) }
+        5 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::Rotate90FlipX) }
+        6 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::Rotate90FlipNone) }
+        7 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::Rotate270FlipX) }
+        8 { [void]$bmp.RotateFlip([System.Drawing.RotateFlipType]::Rotate270FlipNone) }
+      }
+      return $bmp
+    }
+
     function New-ResizedImageForSlot([string]$srcPath, $slot) {
       $targetW = [Math]::Max(1, [int][Math]::Round($slot.W * 96.0 / 72.0))
       $targetH = [Math]::Max(1, [int][Math]::Round($slot.H * 96.0 / 72.0))
@@ -180,6 +201,8 @@ try {
       if ($fit -eq "") { $fit = "cover" }
 
       $src = [System.Drawing.Image]::FromFile($srcPath)
+      $work = New-OrientationCorrectedBitmap $src
+      $src.Dispose()
       $bmp = $null
       try {
         $bmp = New-Object System.Drawing.Bitmap($targetW, $targetH)
@@ -190,17 +213,17 @@ try {
           $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 
           if ($fit -eq "contain") {
-            $scale = [Math]::Min($targetW / $src.Width, $targetH / $src.Height) * 0.98
-            $drawW = [Math]::Max(1, [int][Math]::Round($src.Width * $scale))
-            $drawH = [Math]::Max(1, [int][Math]::Round($src.Height * $scale))
+            $scale = [Math]::Min($targetW / $work.Width, $targetH / $work.Height) * 0.98
+            $drawW = [Math]::Max(1, [int][Math]::Round($work.Width * $scale))
+            $drawH = [Math]::Max(1, [int][Math]::Round($work.Height * $scale))
             $x = [int][Math]::Round(($targetW - $drawW) / 2)
             $y = [int][Math]::Round(($targetH - $drawH) / 2)
-            $g.DrawImage($src, $x, $y, $drawW, $drawH)
+            $g.DrawImage($work, $x, $y, $drawW, $drawH)
           }
           else {
-            $scale = [Math]::Max($targetW / $src.Width, $targetH / $src.Height)
-            $srcX = ($src.Width * $scale - $targetW) / 2.0 / $scale
-            $srcY = ($src.Height * $scale - $targetH) / 2.0 / $scale
+            $scale = [Math]::Max($targetW / $work.Width, $targetH / $work.Height)
+            $srcX = ($work.Width * $scale - $targetW) / 2.0 / $scale
+            $srcY = ($work.Height * $scale - $targetH) / 2.0 / $scale
             $srcW = $targetW / $scale
             $srcH = $targetH / $scale
             $dest = New-Object System.Drawing.Rectangle(0, 0, $targetW, $targetH)
@@ -210,7 +233,7 @@ try {
               [Math]::Max(1, [int][Math]::Round($srcW)),
               [Math]::Max(1, [int][Math]::Round($srcH))
             )
-            $g.DrawImage($src, $dest, $source, [System.Drawing.GraphicsUnit]::Pixel)
+            $g.DrawImage($work, $dest, $source, [System.Drawing.GraphicsUnit]::Pixel)
           }
         }
         finally { $g.Dispose() }
@@ -221,7 +244,7 @@ try {
       }
       finally {
         if ($bmp) { $bmp.Dispose() }
-        $src.Dispose()
+        $work.Dispose()
       }
     }
 
