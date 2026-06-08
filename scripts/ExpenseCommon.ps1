@@ -143,3 +143,24 @@ function Format-UserCell {
   if ($comp -eq "") { return $user }
   return "$user, $comp"
 }
+
+function Format-Amount([double]$Amount) {
+  return "{0:N0}" -f [Math]::Round($Amount, 0)
+}
+
+function Get-TransactionSummary {
+  param($Transactions)
+  $total = 0.0
+  $personal = 0.0
+  foreach ($tx in @($Transactions)) {
+    $claim = Get-TransactionClaimAmount $tx
+    $p = As-Number $tx.personalUseAmount
+    $total += $claim
+    $personal += $p
+  }
+  return @{
+    total    = $total
+    expense  = $total - $personal
+    personal = $personal
+  }
+}

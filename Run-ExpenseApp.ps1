@@ -74,9 +74,9 @@ function Load-Transactions([string]$path) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "경비신청서 만들기"
-$form.Size = New-Object System.Drawing.Size(980, 760)
 $form.StartPosition = "CenterScreen"
 $form.Font = New-Object System.Drawing.Font("Malgun Gothic", 10)
+$form.AutoScroll = $true
 
 $y = 15
 function Add-Lbl([string]$t,[int]$py) { $l=New-Object System.Windows.Forms.Label; $l.Text=$t; $l.Location=New-Object System.Drawing.Point(15,$py); $l.AutoSize=$true; $form.Controls.Add($l) }
@@ -252,15 +252,73 @@ $tbDetail.Add_TextChanged({
 
 $lblStatus = New-Object System.Windows.Forms.Label
 $lblStatus.Location = New-Object System.Drawing.Point(15, $y)
-$lblStatus.Size = New-Object System.Drawing.Size(850, 50)
+$lblStatus.Size = New-Object System.Drawing.Size(930, 22)
 $form.Controls.Add($lblStatus)
-$y += 55
+$y += 30
 
 $btnGenerate = New-Object System.Windows.Forms.Button
 $btnGenerate.Text = "완성 엑셀 만들기"
 $btnGenerate.Location = New-Object System.Drawing.Point(15, $y)
 $btnGenerate.Size = New-Object System.Drawing.Size(200, 36)
 $form.Controls.Add($btnGenerate)
+
+$script:summaryValueLabels = @{}
+$script:summaryPanel = New-Object System.Windows.Forms.Panel
+$script:summaryPanel.Location = New-Object System.Drawing.Point(230, $y)
+$script:summaryPanel.BorderStyle = "FixedSingle"
+$script:summaryPanel.BackColor = [System.Drawing.Color]::White
+$script:summaryPanel.Visible = $false
+$summaryRows = @(
+  @{ key = "total"; label = "합계" },
+  @{ key = "expense"; label = "경비신청금액" },
+  @{ key = "personal"; label = "개인사용금액" }
+)
+$rowH = 26
+$labelW = 120
+$valueW = 158
+$script:summaryPanel.Size = New-Object System.Drawing.Size(($labelW + $valueW), ($rowH * 3))
+foreach ($i in 0..2) {
+  $ry = $i * $rowH
+  $lblSum = New-Object System.Windows.Forms.Label
+  $lblSum.Text = $summaryRows[$i].label
+  $lblSum.Location = New-Object System.Drawing.Point(0, $ry)
+  $lblSum.Size = New-Object System.Drawing.Size($labelW, $rowH)
+  $lblSum.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+  $lblSum.BackColor = [System.Drawing.Color]::FromArgb(242, 242, 242)
+  $lblSum.BorderStyle = "FixedSingle"
+  $valSum = New-Object System.Windows.Forms.Label
+  $valSum.Text = ""
+  $valSum.Location = New-Object System.Drawing.Point($labelW, $ry)
+  $valSum.Size = New-Object System.Drawing.Size($valueW, $rowH)
+  $valSum.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+  $valSum.Padding = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+  $valSum.BorderStyle = "FixedSingle"
+  $script:summaryValueLabels[$summaryRows[$i].key] = $valSum
+  $script:summaryPanel.Controls.AddRange(@($lblSum, $valSum))
+}
+$form.Controls.Add($script:summaryPanel)
+$script:summaryPanel.BringToFront()
+
+$y += 90
+$form.ClientSize = New-Object System.Drawing.Size(960, [Math]::Max(740, $y))
+
+function Update-SummaryPanel {
+  $summary = Get-TransactionSummary -Transactions $script:transactions
+  $script:summaryValueLabels["total"].Text = Format-Amount $summary.total
+  $script:summaryValueLabels["expense"].Text = Format-Amount $summary.expense
+  $script:summaryValueLabels["personal"].Text = Format-Amount $summary.personal
+  $script:summaryPanel.Visible = $true
+  $script:summaryPanel.BringToFront()
+  $form.Refresh()
+}
+
+function Clear-SummaryPanel {
+  foreach ($key in @("total", "expense", "personal")) {
+    $script:summaryValueLabels[$key].Text = "-"
+  }
+  $script:summaryPanel.Visible = $true
+}
+Clear-SummaryPanel
 
 function Sync-GridToTransactions {
   Recalc-AllMealFromGrid
@@ -311,6 +369,7 @@ $btnRcptFiles.Add_Click({
 
 $btnGenerate.Add_Click({
   $lblStatus.Text = ""
+  Clear-SummaryPanel
   if (-not $script:statementPath -or -not $script:templatePath) {
     $lblStatus.Text = "명세서와 회사 양식을 선택하세요."
     $lblStatus.ForeColor = [System.Drawing.Color]::DarkRed
@@ -368,6 +427,7 @@ $btnGenerate.Add_Click({
     }
     $lblStatus.Text = "저장됨: $($saveDlg.FileName)"
     $lblStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+    Update-SummaryPanel
     [System.Windows.Forms.MessageBox]::Show("완료`n$($saveDlg.FileName)", "완료") | Out-Null
   } catch {
     $lblStatus.Text = $_.Exception.Message
