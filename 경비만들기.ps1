@@ -286,13 +286,15 @@ foreach ($i in 0..2) {
   $lblSum.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
   $lblSum.BackColor = [System.Drawing.Color]::FromArgb(242, 242, 242)
   $lblSum.BorderStyle = "FixedSingle"
-  $valSum = New-Object System.Windows.Forms.Label
+  $valSum = New-Object System.Windows.Forms.TextBox
   $valSum.Text = ""
   $valSum.Location = New-Object System.Drawing.Point($labelW, $ry)
   $valSum.Size = New-Object System.Drawing.Size($valueW, $rowH)
-  $valSum.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
-  $valSum.Padding = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+  $valSum.ReadOnly = $true
   $valSum.BorderStyle = "FixedSingle"
+  $valSum.BackColor = [System.Drawing.Color]::White
+  $valSum.TextAlign = "Right"
+  $valSum.TabStop = $false
   $script:summaryValueLabels[$summaryRows[$i].key] = $valSum
   $script:summaryPanel.Controls.AddRange(@($lblSum, $valSum))
 }
