@@ -56,6 +56,80 @@ function Save-Settings($settings) {
   $obj | ConvertTo-Json | Set-Content -Path (Get-SettingsPath) -Encoding UTF8
 }
 
+function Get-PresetsConfigPath() {
+  return Join-Path $PSScriptRoot "expense-presets.json"
+}
+
+function Load-ExpensePresets() {
+  $path = Get-PresetsConfigPath
+  if (-not (Test-Path -LiteralPath $path)) {
+    return @{
+      mealLimitDefault = 12000
+      presets = @()
+      receiptRequiredKeywords = @()
+    }
+  }
+  $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+  return @{
+    mealLimitDefault = if ($raw.mealLimitDefault) { As-Number $raw.mealLimitDefault } else { 12000.0 }
+    presets = @($raw.presets)
+    receiptRequiredKeywords = @($raw.receiptRequiredKeywords | ForEach-Object { As-Text $_ })
+  }
+}
+
+function Find-ExpensePreset {
+  param(
+    [string]$Account,
+    [string]$Detail,
+    [string]$Label = ""
+  )
+  $cfg = Load-ExpensePresets
+  $label = As-Text $Label
+  if ($label -ne "") {
+    $byLabel = @($cfg.presets | Where-Object { (As-Text $_.label) -eq $label })
+    if ($byLabel.Count -gt 0) { return $byLabel[0] }
+  }
+  $account = As-Text $Account
+  $detail = As-Text $Detail
+  $match = @($cfg.presets | Where-Object {
+    (As-Text $_.account) -eq $account -and (As-Text $_.detail) -eq $detail
+  })
+  if ($match.Count -gt 0) { return $match[0] }
+  return $null
+}
+
+function Get-TransactionRule {
+  param(
+    $Transaction,
+    [string]$DefaultAccount = "",
+    [string]$DefaultDetail = "",
+    [double]$DefaultMealLimit = 12000
+  )
+  $account = if ($Transaction -and $Transaction.account) { As-Text $Transaction.account } else { As-Text $DefaultAccount }
+  $detail = if ($Transaction -and $Transaction.detail) { As-Text $Transaction.detail } else { As-Text $DefaultDetail }
+  $preset = Find-ExpensePreset -Account $account -Detail $detail
+  if ($preset) {
+    $rule = As-Text $preset.rule
+  }
+  elseif ($detail -match '식대$') {
+    $rule = "meal_per_person"
+  }
+  else {
+    $rule = "full_claim"
+  }
+
+  $limit = $DefaultMealLimit
+  if ($Transaction -and $Transaction.PSObject.Properties['mealLimit']) {
+    $limit = As-Number $Transaction.mealLimit
+  }
+  elseif ($preset -and $preset.limit) {
+    $limit = As-Number $preset.limit
+  }
+  if ($limit -le 0) { $limit = $DefaultMealLimit }
+
+  return @{ rule = $rule; limit = $limit }
+}
+
 function Sanitize-FileNamePart([string]$text) {
   $t = As-Text $text
   foreach ($c in [IO.Path]::GetInvalidFileNameChars()) {
@@ -87,8 +161,17 @@ function Get-OutputFileName {
   return "${base}${ext}"
 }
 
-function Test-MealLimitApplies([string]$Detail) {
-  return (As-Text $Detail) -eq "야근식대"
+function Test-MealLimitApplies {
+  param(
+    [string]$Detail = "",
+    [string]$Rule = ""
+  )
+  if (As-Text $Rule -ne "") {
+    return (As-Text $Rule) -eq "meal_per_person"
+  }
+  $preset = Find-ExpensePreset -Detail $Detail
+  if ($preset -and (As-Text $preset.rule) -eq "meal_per_person") { return $true }
+  return (As-Text $Detail) -match '식대$'
 }
 
 function Get-CompanionCount([string]$Companions) {
@@ -133,6 +216,124 @@ function Compute-MealAmounts {
   return @{ personal = $personal; expense = $expense }
 }
 
+function Compute-TransactionAmounts {
+  param(
+    $Transaction,
+    [string]$DefaultAccount = "",
+    [string]$DefaultDetail = "",
+    [double]$DefaultMealLimit = 12000,
+    [int]$HeadCount = 1
+  )
+  $claim = Get-TransactionClaimAmount $Transaction
+  $ruleInfo = Get-TransactionRule `
+    -Transaction $Transaction `
+    -DefaultAccount $DefaultAccount `
+    -DefaultDetail $DefaultDetail `
+    -DefaultMealLimit $DefaultMealLimit
+  $rule = $ruleInfo.rule
+  $limit = $ruleInfo.limit
+  $hc = [int][Math]::Max(1, $HeadCount)
+
+  switch ($rule) {
+    "meal_per_person" {
+      return Compute-MealAmounts -ClaimAmount $claim -HeadCount $hc -LimitPerPerson $limit -ApplyMealLimit
+    }
+    "full_personal" {
+      return @{ personal = $claim; expense = 0.0 }
+    }
+    default {
+      return @{ personal = 0.0; expense = $claim }
+    }
+  }
+}
+
+function Set-TxProperty {
+  param(
+    $Transaction,
+    [string]$Name,
+    $Value
+  )
+  $Transaction | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+}
+
+function Update-TransactionRuleFromType {
+  param($Transaction)
+  $preset = Find-ExpensePreset `
+    -Account (As-Text $Transaction.account) `
+    -Detail (As-Text $Transaction.detail)
+  if ($preset) {
+    Set-TxProperty $Transaction 'rule' (As-Text $preset.rule)
+    if ($preset.limit) { Set-TxProperty $Transaction 'mealLimit' (As-Number $preset.limit) }
+    return
+  }
+  $det = As-Text $Transaction.detail
+  if ($det -match '식대$') {
+    Set-TxProperty $Transaction 'rule' 'meal_per_person'
+  }
+  else {
+    Set-TxProperty $Transaction 'rule' 'full_claim'
+  }
+}
+
+function Apply-PresetToTransaction {
+  param(
+    $Transaction,
+    $Preset
+  )
+  if (-not $Preset) { return }
+  Set-TxProperty $Transaction 'account' (As-Text $Preset.account)
+  Set-TxProperty $Transaction 'detail' (As-Text $Preset.detail)
+  Update-TransactionRuleFromType -Transaction $Transaction
+}
+
+function Initialize-TransactionDefaults {
+  param(
+    $Transaction,
+    [string]$DefaultAccount,
+    [string]$DefaultDetail,
+    [double]$DefaultMealLimit = 12000
+  )
+  if (-not $Transaction.PSObject.Properties['account'] -or (As-Text $Transaction.account) -eq "") {
+    $Transaction | Add-Member -NotePropertyName account -NotePropertyValue (As-Text $DefaultAccount) -Force
+  }
+  if (-not $Transaction.PSObject.Properties['detail'] -or (As-Text $Transaction.detail) -eq "") {
+    $Transaction | Add-Member -NotePropertyName detail -NotePropertyValue (As-Text $DefaultDetail) -Force
+  }
+  if (-not $Transaction.PSObject.Properties['headCount']) {
+    $Transaction | Add-Member -NotePropertyName headCount -NotePropertyValue 1 -Force
+  }
+  if (-not $Transaction.PSObject.Properties['companions']) {
+    $Transaction | Add-Member -NotePropertyName companions -NotePropertyValue "" -Force
+  }
+  if (-not $Transaction.PSObject.Properties['headCountManuallySet']) {
+    $Transaction | Add-Member -NotePropertyName headCountManuallySet -NotePropertyValue $false -Force
+  }
+  if (-not $Transaction.PSObject.Properties['personalUseAmount']) {
+    $Transaction | Add-Member -NotePropertyName personalUseAmount -NotePropertyValue 0.0 -Force
+  }
+  Update-TransactionRuleFromType -Transaction $Transaction
+}
+
+function Test-ReceiptRequired {
+  param([string]$Merchant)
+  $cfg = Load-ExpensePresets
+  $name = As-Text $Merchant
+  if ($name -eq "") { return $false }
+  foreach ($kw in $cfg.receiptRequiredKeywords) {
+    if ($kw -ne "" -and $name -like "*$kw*") { return $true }
+  }
+  return $false
+}
+
+function Get-ReceiptRequiredCount {
+  param($Transactions)
+  $count = 0
+  foreach ($tx in @($Transactions)) {
+    if (Test-ReceiptRequired -Merchant (As-Text $tx.merchant)) { $count++ }
+  }
+  return $count
+}
+
 function Format-UserCell {
   param(
     [string]$UserName,
@@ -149,10 +350,19 @@ function Format-Amount([double]$Amount) {
 }
 
 function Get-TransactionSummary {
-  param($Transactions)
+  param(
+    $Transactions,
+    $TransitTransactions = @()
+  )
   $total = 0.0
   $personal = 0.0
   foreach ($tx in @($Transactions)) {
+    $claim = Get-TransactionClaimAmount $tx
+    $p = As-Number $tx.personalUseAmount
+    $total += $claim
+    $personal += $p
+  }
+  foreach ($tx in @($TransitTransactions)) {
     $claim = Get-TransactionClaimAmount $tx
     $p = As-Number $tx.personalUseAmount
     $total += $claim
@@ -163,4 +373,18 @@ function Get-TransactionSummary {
     expense  = $total - $personal
     personal = $personal
   }
+}
+
+function Get-TransactionAccount {
+  param($Transaction, [string]$DefaultAccount)
+  $a = if ($Transaction.account) { As-Text $Transaction.account } else { "" }
+  if ($a -eq "") { return As-Text $DefaultAccount }
+  return $a
+}
+
+function Get-TransactionDetail {
+  param($Transaction, [string]$DefaultDetail)
+  $d = if ($Transaction.detail) { As-Text $Transaction.detail } else { "" }
+  if ($d -eq "") { return As-Text $DefaultDetail }
+  return $d
 }

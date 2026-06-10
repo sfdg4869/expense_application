@@ -1,0 +1,35 @@
+{
+  "mealLimitDefault": 12000,
+  "presets": [
+    { "label": "야근식대", "account": "복리후생비", "detail": "야근식대", "rule": "meal_per_person", "limit": 12000 },
+    { "label": "주말식대", "account": "복리후생비", "detail": "주말식대", "rule": "meal_per_person", "limit": 12000 },
+    { "label": "출장식대", "account": "복리후생비", "detail": "출장식대", "rule": "meal_per_person", "limit": 12000 },
+    { "label": "점심식대", "account": "복리후생비", "detail": "점심식대", "rule": "meal_per_person", "limit": 12000 },
+    { "label": "회식비", "account": "회식비", "detail": "팀회식", "rule": "full_claim" },
+    { "label": "택시", "account": "여비교통비", "detail": "택시", "rule": "full_claim" },
+    { "label": "대중교통", "account": "여비교통비", "detail": "대중교통", "rule": "full_claim" },
+    { "label": "주유", "account": "여비교통비", "detail": "주유", "rule": "full_claim" },
+    { "label": "톨비", "account": "여비교통비", "detail": "톨비", "rule": "full_claim" },
+    { "label": "주차", "account": "여비교통비", "detail": "주차", "rule": "full_claim" },
+    { "label": "숙박", "account": "여비교통비", "detail": "숙박", "rule": "full_claim" },
+    { "label": "취소수수료(업무)", "account": "여비교통비", "detail": "취소수수료", "rule": "full_claim" },
+    { "label": "접대비", "account": "접대비", "detail": "접대", "rule": "full_claim" },
+    { "label": "회의비", "account": "회의비", "detail": "회의", "rule": "full_claim" },
+    { "label": "탕비용품", "account": "소모품비", "detail": "탕비용품", "rule": "full_claim" },
+    { "label": "사무용품", "account": "사무용품비", "detail": "사무용품", "rule": "full_claim" },
+    { "label": "통신비", "account": "통신비", "detail": "통신", "rule": "full_claim" },
+    { "label": "운반비", "account": "운반비", "detail": "택배/퀵", "rule": "full_claim" },
+    { "label": "지급수수료", "account": "지급수수료", "detail": "수수료", "rule": "full_claim" },
+    { "label": "광고선전", "account": "광고선전비", "detail": "세미나/홍보", "rule": "full_claim" },
+    { "label": "도서인쇄", "account": "도서인쇄비", "detail": "도서", "rule": "full_claim" },
+    { "label": "교육훈련", "account": "교육훈련비", "detail": "교육", "rule": "full_claim" },
+    { "label": "개인사용", "account": "선급금", "detail": "개인사용", "rule": "full_personal" }
+  ],
+  "receiptRequiredKeywords": [
+    "GS25", "GS 25", "CU", "세븐일레븐", "7-ELEVEN", "이마트", "EMART", "롯데마트", "홈플러스",
+    "코스트코", "올리브영", "다이소", "스타벅스", "STARBUCKS", "투썸", "이디야", "메가커피",
+    "컴포즈", "빽다방", "쿠팡", "배달의민족", "배민", "요기요", "쿠팡이츠",
+    "네이버페이", "G마켓", "11번가", "옥션", "무신사", "교보문고", "영풍문고",
+    "편의점", "마트", "백화점", "문구", "호텔", "에어비앤비", "야놀자", "여기어때"
+  ]
+}

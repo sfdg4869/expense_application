@@ -228,6 +228,7 @@
       padding: 1px 5px;
       font-size: 0.85em;
     }
+    
 
     footer { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 36px; }
   </style>
@@ -244,10 +245,11 @@
 <main class="wrap">
 
   <div class="quick">
-    <strong>빠른 시작 (3단계)</strong>
+    <strong>빠른 시작</strong>
     <ol>
       <li>프로그램 폴더에서 <strong>경비만들기.vbs</strong> 더블클릭</li>
-      <li>카드 사용내역 · 회사 양식 · 영수증 선택</li>
+      <li>카드 사용내역 · 회사 양식 · 영수증(선택) 선택</li>
+      <li>택시·식대 등 경비 종류가 섞여 있으면 행마다 <strong>프리셋 적용</strong></li>
       <li><strong>완성 엑셀 만들기</strong> → 저장 위치 지정 → 완료</li>
     </ol>
   </div>
@@ -260,7 +262,11 @@
       <li><a href="#prepare">미리 준비할 것</a></li>
       <li><a href="#screen">화면 설명</a></li>
       <li><a href="#howto">사용 순서</a></li>
-      <li><a href="#meal">야근식대 규칙</a></li>
+      <li><a href="#expense-types">경비 유형 · 행별 설정</a></li>
+      <li><a href="#amount-rules">금액 자동 계산 규칙</a></li>
+      <li><a href="#meal">식대 규칙 (상세)</a></li>
+      <li><a href="#receipt-hints">증빙 필요 안내</a></li>
+      <li><a href="#transit">후불교통비</a></li>
       <li><a href="#result">완성 후</a></li>
       <li><a href="#faq">자주 묻는 문제</a></li>
     </ol>
@@ -338,6 +344,11 @@
           </tr>
           <tr>
             <td><span class="tag tag-opt">선택</span></td>
+            <td><strong>후불교통비 내역</strong><br><small>.xls 또는 .xlsx</small></td>
+            <td>현대카드 MY COMPANY 등에서 받은 후불교통 이용내역</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-opt">선택</span></td>
             <td><strong>영수증 사진</strong><br><small>jpg, png 등</small></td>
             <td>폴더 통째로 또는 파일 여러 개 선택</td>
           </tr>
@@ -345,6 +356,7 @@
       </table>
       <div class="note">
         영수증은 <strong>파일 이름 순서</strong>대로 엑셀에 들어갑니다.<br>
+        한 시트 안에서는 <strong>지출증빙 첨부파일(1)</strong> 4칸을 먼저 채운 뒤 <strong>첨부파일(2)</strong> 4칸에 들어갑니다.<br>
         순서를 맞추려면 파일명 앞에 <code>01_</code>, <code>02_</code> 처럼 번호를 붙이세요.
       </div>
     </div>
@@ -369,6 +381,11 @@
           <span class="app-btn">찾기</span>
         </div>
         <div class="app-row">
+          <span class="app-label">후불교통비 (선택)</span>
+          <span class="app-input">파일 경로...</span>
+          <span class="app-btn">찾기</span>
+        </div>
+        <div class="app-row">
           <span class="app-label">영수증 (선택)</span>
           <span class="app-input">폴더 또는 파일...</span>
           <span class="app-btn">폴더</span>
@@ -386,23 +403,31 @@
           <span class="app-btn" style="min-width:120px">부서명 입력</span>
           <span style="color:#888; font-size:12px">성명 = 사용자</span>
         </div>
+        <div class="app-row">
+          <span class="app-label">경비 유형 프리셋</span>
+          <span class="app-btn" style="min-width:80px">택시 ▼</span>
+          <span class="app-btn">선택 행에 적용</span>
+          <span class="app-btn">기본값 일괄 적용</span>
+        </div>
         <table class="app-grid">
           <thead>
             <tr>
-              <th>이용일</th><th>가맹점</th><th>청구금액</th>
-              <th>인원</th><th>동행자</th><th>개인사용</th>
+              <th>계정</th><th>업무상세</th><th>이용일</th><th>가맹점</th>
+              <th>청구금액</th><th>인원</th><th>동행자</th><th>개인사용</th><th>증빙</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>2026.04.01</td><td>GS25...</td><td>11900</td>
-              <td>1</td><td></td><td>0</td>
+              <td>여비교통비</td><td>택시</td><td>05.13</td><td>택시-서울...</td>
+              <td>17000</td><td>1</td><td></td><td style="color:#080">0</td><td></td>
             </tr>
             <tr>
-              <td colspan="6" style="color:#aaa">← 카드 내역 선택 시 자동으로 채워짐</td>
+              <td>복리후생비</td><td>야근식대</td><td>05.14</td><td>GS25...</td>
+              <td>13500</td><td>1</td><td></td><td style="color:#c00">1500</td><td>필요</td>
             </tr>
           </tbody>
         </table>
+        <p style="color:#666; font-size:11px; margin:0 0 8px;">개인사용 열은 프로그램이 자동 계산합니다 (직접 수정 불가).</p>
         <div style="color:#080; font-size:12px; margin-bottom:8px;">저장됨: C:\...\완성파일.xls</div>
         <div class="app-bottom">
           <span class="app-btn" style="padding:8px 16px; font-size:13px; font-weight:600;">완성 엑셀 만들기</span>
@@ -440,6 +465,15 @@
     <div class="step">
       <span class="step-num">3</span>
       <div class="step-body">
+        <strong>후불교통비 넣기</strong> (있을 때만)<br>
+        「<strong>찾기</strong>」 → 현대카드 MY COMPANY에서 받은 후불교통 이용내역 선택<br>
+        택시·고속버스 내역은 자동으로 제외됩니다.
+      </div>
+    </div>
+
+    <div class="step">
+      <span class="step-num">4</span>
+      <div class="step-body">
         <strong>영수증 넣기</strong> (있을 때만)<br>
         「<strong>폴더</strong>」 — 영수증이 모인 폴더 선택<br>
         「<strong>파일</strong>」 — 사진을 직접 여러 장 선택
@@ -447,7 +481,7 @@
     </div>
 
     <div class="step">
-      <span class="step-num">4</span>
+      <span class="step-num">5</span>
       <div class="step-body">
         <strong>기본값 확인</strong>
         <table>
@@ -463,19 +497,27 @@
     </div>
 
     <div class="step">
-      <span class="step-num">5</span>
+      <span class="step-num">6</span>
       <div class="step-body">
-        <strong>거래 목록 확인 · 수정</strong> (필요할 때)
+        <strong>거래 목록 — 행별 경비 유형 설정</strong>
         <ul>
-          <li><strong>동행자</strong> — 같이 식사한 사람 (쉼표로 구분: <code>김철수, 이영희</code>)</li>
-          <li><strong>인원</strong> — 식사 인원 수 (동행자 입력 시 자동 계산)</li>
-          <li><strong>개인사용</strong> — 야근식대 한도 초과분 (자동 계산)</li>
+          <li>명세서를 불러오면 기본값(예: 야근식대)이 모든 행에 들어갑니다. <strong>경비 종류마다 프리셋을 적용</strong>해야 금액이 올바르게 계산됩니다.</li>
+          <li><strong>경비 유형 프리셋</strong> 선택 → 해당 행 클릭(여러 행 선택 가능) → 「<strong>선택 행에 적용</strong>」</li>
+          <li>표에서 <strong>계정</strong> · <strong>업무상세</strong> 열을 직접 수정해도 됩니다. 수정하면 개인사용 금액이 자동으로 다시 계산됩니다.</li>
+          <li>상단 기본값으로 여러 행을 한꺼번에 넣으려면 「<strong>기본값 일괄 적용</strong>」</li>
+          <li><strong>개인사용</strong> 열 — 프로그램이 자동 계산 (직접 입력 불가)</li>
+          <li><strong>동행자</strong> — 식대일 때만 (쉼표 구분, 인원 자동 반영)</li>
+          <li><strong>증빙</strong> 열에 「필요」 — 편의점·마트·커피 등, 영수증 첨부 권장</li>
         </ul>
+        <div class="note" style="margin-top:10px;">
+          <strong>택시·주유 등은 반드시 「택시」「주유」 프리셋을 적용하세요.</strong><br>
+          기본값(야근식대)이 그대로 남아 있으면 식대 규칙(12,000원 한도)이 적용될 수 있습니다.
+        </div>
       </div>
     </div>
 
     <div class="step">
-      <span class="step-num">6</span>
+      <span class="step-num">7</span>
       <div class="step-body">
         <strong>「완성 엑셀 만들기」 클릭</strong>
         <ol>
@@ -489,24 +531,124 @@
     </div>
   </section>
 
-  <!-- 6. 야근식대 -->
-  <section id="meal">
-    <h2>6. 야근식대 규칙</h2>
+  <!-- 6. 경비 유형 -->
+  <section id="expense-types">
+    <h2>6. 경비 유형 · 행별 설정</h2>
     <div class="card">
-      <p>업무상세가 <strong>「야근식대」</strong>일 때만 적용됩니다.</p>
+      <p>한 달 명세서에 <strong>식대·택시·사무용품</strong> 등이 섞여 있어도, 거래마다 계정과 업무상세를 다르게 넣을 수 있습니다.</p>
       <table>
-        <tr><th>1인 한도</th><td>12,000원</td></tr>
-        <tr><th>2명이 같이 먹으면</th><td>한도 24,000원 (12,000 × 2명)</td></tr>
-        <tr><th>한도를 넘으면</th><td>넘은 금액이 <strong>개인사용</strong>으로 잡힘</td></tr>
+        <tr><th>프리셋 예시</th><th>계정</th><th>업무상세</th><th>적용 방법</th></tr>
+        <tr><td>야근식대</td><td>복리후생비</td><td>야근식대</td><td>식대 행에 적용</td></tr>
+        <tr><td>택시</td><td>여비교통비</td><td>택시</td><td>택시·대리 이용 행에 적용</td></tr>
+        <tr><td>주유</td><td>여비교통비</td><td>주유</td><td>주유소 이용 행에 적용</td></tr>
+        <tr><td>사무용품</td><td>사무용품비</td><td>사무용품</td><td>사무용품 구매 행에 적용</td></tr>
+        <tr><td>개인사용</td><td>선급금</td><td>개인사용</td><td>회사 경비가 아닌 개인 결제 행에 적용</td></tr>
       </table>
-      <p style="margin-bottom:0;"><strong>예시)</strong> 1명이 13,500원 사용 → 경비신청 12,000원 / 개인사용 1,500원<br>
-      <strong>예시)</strong> 2명이 23,600원 사용 → 경비신청 23,600원 / 개인사용 0원</p>
+      <p>프리셋 목록은 <code>scripts\expense-presets.json</code> 에서 회사 기준에 맞게 추가·수정할 수 있습니다.</p>
+      <div class="ok" style="margin-bottom:0;">
+        <strong>팁:</strong> Ctrl 키를 누른 채로 여러 행을 선택한 뒤, 프리셋을 한 번에 적용할 수 있습니다.
+      </div>
     </div>
   </section>
 
-  <!-- 7. 결과 -->
+  <!-- 6-1. 금액 규칙 -->
+  <section id="amount-rules">
+    <h2>7. 금액 자동 계산 규칙</h2>
+    <div class="card">
+      <p>「<strong>개인사용</strong>」 열과 하단 <strong>합계 표</strong>는 업무상세(경비 유형)에 따라 프로그램이 자동으로 계산합니다.</p>
+      <table>
+        <tr>
+          <th>경비 유형</th>
+          <th>12,000원 한도</th>
+          <th>경비신청</th>
+          <th>개인사용</th>
+        </tr>
+        <tr>
+          <td><strong>식대</strong><br><small>야근식대, 주말식대, 출장식대 등<br>업무상세가 「~식대」로 끝남</small></td>
+          <td>있음<br><small>1인 12,000원 × 인원</small></td>
+          <td>한도 이내 금액</td>
+          <td>한도 초과분</td>
+        </tr>
+        <tr>
+          <td><strong>택시·주유·사무용품 등</strong><br><small>식대가 아닌 일반 업무 경비</small></td>
+          <td><strong>없음</strong></td>
+          <td><strong>청구금액 전액</strong></td>
+          <td><strong>항상 0원</strong></td>
+        </tr>
+        <tr>
+          <td><strong>개인사용</strong><br><small>선급금 / 개인사용 프리셋</small></td>
+          <td>해당 없음</td>
+          <td>0원</td>
+          <td>청구금액 전액</td>
+        </tr>
+      </table>
+
+      <h3>자주 쓰는 예시</h3>
+      <table>
+        <tr><th>상황</th><th>프리셋</th><th>청구금액</th><th>경비신청</th><th>개인사용</th></tr>
+        <tr><td>야근 식사 1인</td><td>야근식대</td><td>13,500원</td><td>12,000원</td><td>1,500원</td></tr>
+        <tr><td>야근 식사 2인</td><td>야근식대</td><td>23,600원</td><td>23,600원</td><td>0원</td></tr>
+        <tr><td>택시 이용</td><td>택시</td><td>17,000원</td><td>17,000원</td><td><strong>0원</strong></td></tr>
+        <tr><td>택시 이용</td><td>택시</td><td>6,400원</td><td>6,400원</td><td>0원</td></tr>
+        <tr><td>개인 카드 사용</td><td>개인사용</td><td>50,000원</td><td>0원</td><td>50,000원</td></tr>
+      </table>
+
+      <div class="note" style="margin-bottom:0;">
+        <strong>중요:</strong> 택시·주유 등은 금액이 12,000원을 넘어도 회사에서 전액 지원합니다. 개인사용이 잡히면 해당 행에 올바른 프리셋(예: 택시)이 적용되었는지 확인하세요.
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. 식대 -->
+  <section id="meal">
+    <h2>8. 식대 규칙 (상세)</h2>
+    <div class="card">
+      <p>업무상세가 <strong>「~식대」</strong> 로 끝나는 프리셋(야근식대, 주말식대, 출장식대, 점심식대 등)에만 아래 규칙이 적용됩니다.</p>
+      <table>
+        <tr><th>1인 한도</th><td>12,000원</td></tr>
+        <tr><th>인원 계산</th><td>본인 1명 + 동행자 수 (동행자 칸에 이름을 쉼표로 구분해 입력)</td></tr>
+        <tr><th>2명이 같이 먹으면</th><td>한도 24,000원 (12,000 × 2명)</td></tr>
+        <tr><th>한도를 넘으면</th><td>넘은 금액만 <strong>개인사용</strong>으로 잡힘</td></tr>
+        <tr><th>인원 직접 수정</th><td>「인원」 열을 직접 바꿀 수도 있습니다</td></tr>
+      </table>
+      <p style="margin-bottom:0;">
+        <strong>예시)</strong> 1명 · 13,500원 → 경비신청 12,000원 / 개인사용 1,500원<br>
+        <strong>예시)</strong> 2명 · 23,600원 → 경비신청 23,600원 / 개인사용 0원<br>
+        <strong>예시)</strong> 동행자 「김철수, 이영희」· 35,000원 → 인원 3명 · 한도 36,000원 → 경비신청 35,000원 / 개인사용 0원
+      </p>
+    </div>
+  </section>
+
+  <!-- 8. 증빙 -->
+  <section id="receipt-hints">
+    <h2>9. 증빙 필요 안내</h2>
+    <div class="card">
+      <p>편의점(GS25, CU), 마트, 커피 전문점, 배달 앱, 쇼핑몰 등은 회사 규정상 <strong>영수증 첨부</strong>가 필요합니다.</p>
+      <ul>
+        <li>거래 표 <strong>「증빙」</strong> 열에 <strong>필요</strong> 로 표시됩니다.</li>
+        <li>영수증 개수가 부족하면 완성 전 경고가 뜹니다.</li>
+        <li>영수증은 파일명 순으로 지출증빙 시트에 들어갑니다. (첨부파일(1) 4칸 → 첨부파일(2) 4칸)</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 9. 교통비 -->
+  <section id="transit">
+    <h2>10. 후불교통비 (선택)</h2>
+    <div class="card">
+      <p>후불 교통카드·하이패스 이용내역은 카드 명세서와 <strong>별도 파일</strong>입니다.</p>
+      <ol>
+        <li>「후불교통비 내역」에서 엑셀 선택</li>
+        <li>택시·고속버스는 자동 제외</li>
+        <li>완성 엑셀의 <strong>후불교통비명세서</strong> 시트에 입력</li>
+      </ol>
+      <p style="margin-bottom:0;">합계 표에는 카드 이용내역 + 교통비가 함께 반영됩니다.</p>
+    </div>
+  </section>
+
+  <!-- 10. 결과 -->
   <section id="result">
-    <h2>7. 완성 후</h2>
+    <h2>11. 완성 후</h2>
     <div class="card">
       <p>지정한 위치에 <strong>.xls 파일</strong>이 생성됩니다.</p>
       <p>파일 이름 예시:</p>
@@ -516,8 +658,9 @@
 
       <p><strong>엑셀 안에 자동으로 채워지는 내용</strong></p>
       <table>
-        <tr><th>1. 이용내역명세서</th><td>카드 거래 내역 + 계정·거래처·사용자·경비금액</td></tr>
-        <tr><th>1-1. 지출증빙 첨부</th><td>영수증 사진 (8장씩, 많으면 시트 추가)</td></tr>
+        <tr><th>1. 이용내역명세서</th><td>카드 거래 내역 + 행별 계정·업무상세·경비신청금액·개인사용금액</td></tr>
+        <tr><th>후불교통비명세서</th><td>교통비 내역 (선택 시)</td></tr>
+        <tr><th>1-1. 지출증빙 첨부</th><td>영수증 사진 (시트당 8장: 첨부파일(1) 4장 + 첨부파일(2) 4장, 많으면 시트 추가)</td></tr>
       </table>
 
       <div class="ok">
@@ -526,11 +669,21 @@
     </div>
   </section>
 
-  <!-- 8. FAQ -->
+  <!-- 11. FAQ -->
   <section id="faq">
-    <h2>8. 자주 묻는 문제</h2>
+    <h2>12. 자주 묻는 문제</h2>
     <div class="card">
       <table>
+        <tr>
+          <th>택시인데 개인사용이 나와요</th>
+          <td>해당 행을 선택한 뒤 프리셋에서 「<strong>택시</strong>」를 고르고 「선택 행에 적용」을 누르세요.<br>
+          업무상세가 「야근식대」 등 식대로 남아 있으면 12,000원 한도가 적용됩니다. 택시는 금액과 관계없이 개인사용 0원이어야 합니다.</td>
+        </tr>
+        <tr>
+          <th>개인사용 칸을 수정할 수 없어요</th>
+          <td>정상입니다. 개인사용은 경비 유형에 따라 <strong>자동 계산</strong>되며 직접 입력할 수 없습니다.<br>
+          금액이 맞지 않으면 해당 행의 프리셋(업무상세)을 확인하세요.</td>
+        </tr>
         <tr>
           <th>엑셀 작성이 실패해요</th>
           <td>열려 있는 엑셀을 모두 닫고 다시 시도하세요.</td>
@@ -549,8 +702,16 @@
           <td>정상입니다. 계정·거래처·부서 등은 자동 저장됩니다.</td>
         </tr>
         <tr>
-          <th>합계 표가 안 보여요</th>
-          <td>프로그램을 완전히 닫고 <strong>경비만들기.vbs</strong> 로 다시 실행하세요.</td>
+          <th>한 달에 경비 종류가 여러 개예요</th>
+          <td>거래 표에서 행마다 프리셋을 적용하거나, 계정·업무상세를 직접 수정하세요.</td>
+        </tr>
+        <tr>
+          <th>증빙 필요라고 나와요</th>
+          <td>편의점·마트 등은 영수증을 폴더/파일로 추가하세요. 파일명 순으로 첨부됩니다.</td>
+        </tr>
+        <tr>
+          <th>교통비 시트가 없다고 해요</th>
+          <td>회사 양식에 「후불교통」 시트가 있는지 확인하세요.</td>
         </tr>
       </table>
     </div>

@@ -14,8 +14,12 @@ $config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom
 $templatePath = $config.templatePath
 $outputPath = $config.outputPath
 $transactions = @($config.transactions)
+$transitTransactions = @()
+if ($config.transitTransactions) { $transitTransactions = @($config.transitTransactions) }
 $defaults = $config.defaults
 $images = @($config.imagePaths | ForEach-Object { "$_" })
+$defaultMealLimit = 12000
+if ($defaults.mealLimitPerPerson) { $defaultMealLimit = As-Number $defaults.mealLimitPerPerson }
 
 if (-not (Test-Path -LiteralPath $templatePath)) {
   throw "Template file not found: $templatePath"
@@ -60,6 +64,111 @@ function Get-ColValue {
   return $null
 }
 
+function Find-WorksheetByNamePattern {
+  param($Workbook, [string]$Pattern)
+  foreach ($ws in @($Workbook.Worksheets)) {
+    $name = As-Text $ws.Name
+    if ($name -match $Pattern) { return $ws }
+  }
+  return $null
+}
+
+function Clear-TransitRows {
+  param($Sheet, [int]$StartRow, [int]$EndRow)
+  $cols = @(1..17) + @(16..20)
+  $cols = @($cols | Select-Object -Unique)
+  foreach ($r in $StartRow..$EndRow) {
+    foreach ($c in $cols) {
+      try { $Sheet.Cells.Item($r, $c).ClearContents() } catch {}
+    }
+  }
+}
+
+function Write-UsageTransactionRow {
+  param(
+    $Sheet,
+    [int]$Row,
+    $Transaction,
+    $Defaults,
+    [double]$DefaultMealLimit
+  )
+  $cols = @($Transaction.cardColumns)
+  $textCardCols = @(1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14)
+  $numericCardCols = @(6, 7)
+
+  foreach ($colNum in $numericCardCols) {
+    $val = Get-ColValue -Cols $cols -Index ($colNum - 1)
+    Set-CellValue -Sheet $Sheet -Row $Row -Col $colNum -Value $val
+  }
+
+  for ($c = 0; $c -lt 14; $c++) {
+    $colNum = $c + 1
+    if ($numericCardCols -contains $colNum) { continue }
+    $val = Get-ColValue -Cols $cols -Index $c
+    if ($textCardCols -contains $colNum) {
+      Set-CellValue -Sheet $Sheet -Row $Row -Col $colNum -Value $val -AsString
+    }
+    else {
+      Set-CellValue -Sheet $Sheet -Row $Row -Col $colNum -Value $val
+    }
+  }
+
+  $personal = As-Number $Transaction.personalUseAmount
+  $cardCol6 = As-Number (Get-ColValue -Cols $cols -Index 5)
+  if ($cardCol6 -le 0) { $cardCol6 = Get-TransactionClaimAmount $Transaction }
+  $expenseAmount = $cardCol6 - $personal
+
+  $baseUser = As-Text $Transaction.userName
+  if ($baseUser -eq "") { $baseUser = As-Text $Defaults.userName }
+  $userName = Format-UserCell -UserName $baseUser -Companions (As-Text $Transaction.companions)
+  $account = Get-TransactionAccount -Transaction $Transaction -DefaultAccount $Defaults.account
+  $detail = Get-TransactionDetail -Transaction $Transaction -DefaultDetail $Defaults.detail
+
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 16 -Value $account -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 17 -Value $Defaults.client -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 18 -Value $userName -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 19 -Value $detail -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 20 -Value $expenseAmount
+}
+
+function Write-TransitTransactionRow {
+  param(
+    $Sheet,
+    [int]$Row,
+    $Transaction,
+    $Defaults
+  )
+  $cols = @($Transaction.cardColumns)
+  $textCols = @(1..5) + @(9..17)
+  $numericCols = @(6, 7, 8)
+
+  foreach ($colNum in $numericCols) {
+    $val = Get-ColValue -Cols $cols -Index ($colNum - 1)
+    Set-CellValue -Sheet $Sheet -Row $Row -Col $colNum -Value $val
+  }
+
+  foreach ($colNum in $textCols) {
+    $val = Get-ColValue -Cols $cols -Index ($colNum - 1)
+    Set-CellValue -Sheet $Sheet -Row $Row -Col $colNum -Value $val -AsString
+  }
+
+  $personal = As-Number $Transaction.personalUseAmount
+  $claim = Get-TransactionClaimAmount $Transaction
+  $expenseAmount = $claim - $personal
+
+  $baseUser = As-Text $Transaction.userName
+  if ($baseUser -eq "") { $baseUser = As-Text $Defaults.userName }
+  $userName = Format-UserCell -UserName $baseUser -Companions (As-Text $Transaction.companions)
+  $account = Get-TransactionAccount -Transaction $Transaction -DefaultAccount "여비교통비"
+  $detail = Get-TransactionDetail -Transaction $Transaction -DefaultDetail "대중교통"
+
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 16 -Value $account -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 17 -Value $Defaults.client -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 18 -Value $userName -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 19 -Value $detail -AsString
+  Set-CellValue -Sheet $Sheet -Row $Row -Col 20 -Value $expenseAmount
+}
+
 try {
   $excel = New-Object -ComObject Excel.Application
   $excel.Visible = $false
@@ -75,48 +184,21 @@ try {
 
   Clear-UsageRows -Sheet $usageSheet -StartRow 3 -EndRow 320
 
-  $textCardCols = @(1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14)
-  $numericCardCols = @(6, 7)
   $row = 3
-
   foreach ($tx in $transactions) {
-    $cols = @($tx.cardColumns)
-
-    foreach ($colNum in $numericCardCols) {
-      $val = Get-ColValue -Cols $cols -Index ($colNum - 1)
-      Set-CellValue -Sheet $usageSheet -Row $row -Col $colNum -Value $val
-    }
-
-    for ($c = 0; $c -lt 14; $c++) {
-      $colNum = $c + 1
-      if ($numericCardCols -contains $colNum) { continue }
-      $val = Get-ColValue -Cols $cols -Index $c
-      if ($textCardCols -contains $colNum) {
-        Set-CellValue -Sheet $usageSheet -Row $row -Col $colNum -Value $val -AsString
-      }
-      else {
-        Set-CellValue -Sheet $usageSheet -Row $row -Col $colNum -Value $val
-      }
-    }
-
-    $personal = As-Number $tx.personalUseAmount
-    $cardCol6 = As-Number (Get-ColValue -Cols $cols -Index 5)
-    if ($cardCol6 -le 0) { $cardCol6 = Get-TransactionClaimAmount $tx }
-    # 20열 경비신청 = min(청구, 12,000×인원), 21열 개인사용은 양식 수식
-    $expenseAmount = $cardCol6 - $personal
-
-    $baseUser = As-Text $tx.userName
-    if ($baseUser -eq "") { $baseUser = As-Text $defaults.userName }
-    $userName = Format-UserCell -UserName $baseUser -Companions (As-Text $tx.companions)
-    $detail = As-Text $tx.detail
-    if ($detail -eq "") { $detail = As-Text $defaults.detail }
-
-    Set-CellValue -Sheet $usageSheet -Row $row -Col 16 -Value $defaults.account -AsString
-    Set-CellValue -Sheet $usageSheet -Row $row -Col 17 -Value $defaults.client -AsString
-    Set-CellValue -Sheet $usageSheet -Row $row -Col 18 -Value $userName -AsString
-    Set-CellValue -Sheet $usageSheet -Row $row -Col 19 -Value $detail -AsString
-    Set-CellValue -Sheet $usageSheet -Row $row -Col 20 -Value $expenseAmount
+    Write-UsageTransactionRow -Sheet $usageSheet -Row $row -Transaction $tx -Defaults $defaults -DefaultMealLimit $defaultMealLimit
     $row++
+  }
+
+  if ($transitTransactions.Count -gt 0) {
+    $transitSheet = Find-WorksheetByNamePattern -Workbook $wb -Pattern '후불교통'
+    if (-not $transitSheet) { throw "후불교통비명세서 시트를 찾을 수 없습니다. 회사 양식을 확인하세요." }
+    Clear-TransitRows -Sheet $transitSheet -StartRow 3 -EndRow 320
+    $trow = 3
+    foreach ($tx in $transitTransactions) {
+      Write-TransitTransactionRow -Sheet $transitSheet -Row $trow -Transaction $tx -Defaults $defaults
+      $trow++
+    }
   }
 
   $imgIndex = 0
@@ -147,8 +229,7 @@ try {
     function Get-ReceiptImageSlots($sheet) {
       $slots = New-Object System.Collections.Generic.List[object]
 
-      # 위 4칸: 잘 나오던 방식 그대로 (Range 전체 + cover)
-      foreach ($addr in @("A3:D21", "E3:H21", "I3:L21", "M3:P21")) {
+      function Add-TopSlot([string]$addr) {
         $r = $sheet.Range($addr)
         $slots.Add(@{
           Left = [double]$r.Left
@@ -159,8 +240,7 @@ try {
         }) | Out-Null
       }
 
-      # 아래 4칸만: 22~40행 실선 박스 + 병합셀 보정
-      foreach ($addr in @("A22:D40", "E22:H40", "I22:L40", "M22:P40")) {
+      function Add-BottomSlot([string]$addr) {
         $b = Get-SlotBounds $sheet $addr
         $slots.Add(@{
           Left = $b.Left
@@ -170,6 +250,17 @@ try {
           Fit = "cover"
         }) | Out-Null
       }
+
+      # 지출증빙 첨부파일(1) 4칸을 먼저 채운 뒤 첨부파일(2) 4칸
+      # (1) 좌상·우상·좌하·우하 → (2) 좌상·우상·좌하·우하
+      Add-TopSlot "A3:D21"
+      Add-TopSlot "E3:H21"
+      Add-BottomSlot "A22:D40"
+      Add-BottomSlot "E22:H40"
+      Add-TopSlot "I3:L21"
+      Add-TopSlot "M3:P21"
+      Add-BottomSlot "I22:L40"
+      Add-BottomSlot "M22:P40"
       return $slots
     }
 
@@ -265,7 +356,9 @@ try {
       }
     }
 
-    $templateReceiptIdx = 2
+    $receiptSheet = Find-WorksheetByNamePattern -Workbook $wb -Pattern '지출증빙'
+    if (-not $receiptSheet) { $receiptSheet = $wb.Worksheets.Item(2) }
+    $templateReceiptIdx = $receiptSheet.Index
     $slotsPerSheet = 8
     $neededSheets = [int][Math]::Ceiling($images.Count / [double]$slotsPerSheet)
 
